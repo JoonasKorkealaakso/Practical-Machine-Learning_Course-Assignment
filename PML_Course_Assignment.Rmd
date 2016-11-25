@@ -1,0 +1,107 @@
+---
+title: "Practical Machine Learning - Course Assignment - Quantified self"
+author: "Joonas Korkealaakso"
+date: "25 November 2016"
+output: html_document
+---
+
+This project is a submission for the Practical Machine Learning online course on Coursera in the Data Science Specialization provided by John Hopkins University.
+
+## Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self-movement. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+This project uses data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants. Each participant performed barbell lifts correctly and incorrectly in 5 different ways. More information on the original study is available from the website here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har/ "http://groupware.les.inf.puc-rio.br/har/") (section on the Weight Lifting Exercise Dataset).
+
+## Loading the data and the required packages into R
+```{r}
+# Load the required packages into R
+library(caret); library(lattice); library(ggplot2); library(randomForest); library(gbm); library(survival); library(splines); library(parallel); library(plyr); library(knitr); library(rmarkdown)
+```
+
+```{r}
+# Load the training and testing data sets into R and remove all 'NA's
+training_data <-read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"))
+testing_data <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
+
+# Look at the data
+dim(training_data); dim(testing_data)
+``` 
+
+```{r,eval=FALSE}
+View(training_data); View(testing_data)
+```
+
+The training data contains 19622 observations across 160 variables, whereas, the testing set contains 20 observations across the same 160 variables. From looking at the training data it is evident that the data contains a lot of missing values and needs to be processed and cleaned further.
+
+## Data processing and cleaning
+```{r}
+# Remove NA columns from the training data set
+training_data <- training_data[, colSums(is.na(training_data)) == 0] 
+testing_data <- testing_data[, colSums(is.na(testing_data)) == 0] 
+
+# Calculate and remove variables with near zero variance in the training data set
+nzv <- nearZeroVar(training_data,saveMetrics=TRUE)
+training_data <- training_data[,nzv$nzv==FALSE]
+
+#Remove the id column from the training data set
+training_data <- training_data[,-1]
+
+# Select only the testing set variables that are also used in the training set
+validation_vars <- colnames(training_data[,-58]) # remove target 'classe' from variables
+validation <- testing_data[validation_vars]
+```
+
+```{r,eval=FALSE}
+# Look at the data again
+View(training_data); View(validation)
+```
+
+The training and testing data sets now contain the desired variables for performing the machine learning analyses.
+
+## Partitioning the training data for model building
+The training data is further partitioned into a training and test set for model building and validation. The testing portion of the partitioned data is used to cross-validate the results of the machine learning models generated using the training set.
+
+The original testing data is used as a validation set to ultimately test and assess the performance of the developed machine learning models.
+```{r}
+# Set seed to get reproducible results
+set.seed(10)
+
+# Partition the training data into a training (70%) and testing (30%) sets
+inTrain <- createDataPartition(training_data$classe, p=0.7, list=F)
+training <- training_data[inTrain,] # 13737 observations in training set
+testing <- training_data[-inTrain,] # 5885 observations in testing set
+```
+
+## Model building
+Random forest and gradient boosting machine learning models are built using the training set and their performance is evalueated against the testing set. Random forest and gradient boosting algorithms were selected because of their great prediction accuracy. The model with the greater accuracy on the testing set is used to make the final predictions on the validation data.
+
+### Random forest model
+```{r}
+# Build the random Forest model using all variables, 3-fold cross-validation,  the number of tree models is limited to 200 for computational purposes
+RF_model <- train(classe~., method = "rf", data = training, trControl = trainControl(method="cv", 3), ntree=200)
+print(RF_model)
+
+# Evaluate model performance ont the testing set
+RF_pred <- predict(RF_model, testing)
+confusionMatrix(testing$classe, RF_pred)
+```
+The Random forest model was able to predict the classe results in the testing set with remarkable accuracy. The accuracy of the random forest model was 99,95% and the out of sample error was only 0,05%. 
+
+### Gradient boosting model
+```{r}
+# Build the gradient boosting model wusing all variables, 3-fold repeated cross-validation, and set verbose to FALSE
+GBM_model <- train(classe~., method = "gbm", data = training,  trControl = trainControl(method = "repeatedcv", number = 3, repeats = 1), verbose = F)
+print(GBM_model)
+
+# Evaluate model performance ont the testing set
+GBM_pred <- predict(GBM_model, testing)
+confusionMatrix(testing$classe, GBM_pred)
+```
+The gradient boosting model was also able to predict the testing classe result with great accuracy. The accuracy of the gradient boosting model was 99,63% and the out of sample error was only 0,37%.  
+
+## Predicting Results on the Test Data
+Both the random forest and gradient boosting models performed extremely well with over 99% accuracy. However, the random forest model was selected to perform the final predictions as it retained the slightly higher accuracy and smaller out of sample error term.
+```{r}
+Final_predictions <- predict(RF_model, validation)
+Final_predictions
+```
